@@ -12,6 +12,60 @@ UI.Element = function ( dom ) {
 
 UI.Element.prototype = {
 
+	add: function () {
+
+		for ( var i = 0; i < arguments.length; i ++ ) {
+
+			var argument = arguments[ i ];
+
+			if ( argument instanceof UI.Element ) {
+
+				this.dom.appendChild( argument.dom );
+
+			} else {
+
+				console.error( 'UI.Element:', argument, 'is not an instance of UI.Element.' );
+
+			}
+
+		}
+
+		return this;
+
+	},
+
+	remove: function () {
+
+		for ( var i = 0; i < arguments.length; i ++ ) {
+
+			var argument = arguments[ i ];
+
+			if ( argument instanceof UI.Element ) {
+
+				this.dom.removeChild( argument.dom );
+
+			} else {
+
+				console.error( 'UI.Element:', argument, 'is not an instance of UI.Element.' );
+
+			}
+
+		}
+
+		return this;
+
+	},
+
+	clear: function () {
+
+		while ( this.dom.children.length ) {
+
+			this.dom.removeChild( this.dom.lastChild );
+
+		}
+
+	},
+
 	setId: function ( id ) {
 
 		this.dom.id = id;
@@ -20,9 +74,31 @@ UI.Element.prototype = {
 
 	},
 
+	getId: function ( id ) {
+
+		return this.dom.id;
+
+	},
+
 	setClass: function ( name ) {
 
 		this.dom.className = name;
+
+		return this;
+
+	},
+
+	addClass: function ( name ) {
+
+		this.dom.classList.add( name );
+
+		return this;
+
+	},
+
+	removeClass: function ( name ) {
+
+		this.dom.classList.remove( name );
 
 		return this;
 
@@ -35,6 +111,8 @@ UI.Element.prototype = {
 			this.dom.style[ style ] = array[ i ];
 
 		}
+
+		return this;
 
 	},
 
@@ -54,13 +132,13 @@ UI.Element.prototype = {
 
 	}
 
-}
+};
 
 // properties
 
 var properties = [ 'position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'border', 'borderLeft',
-'borderTop', 'borderRight', 'borderBottom', 'borderColor', 'display', 'overflow', 'margin', 'marginLeft', 'marginTop', 'marginRight', 'marginBottom', 'padding', 'paddingLeft', 'paddingTop', 'paddingRight', 'paddingBottom', 'color',
-'backgroundColor', 'opacity', 'fontSize', 'fontWeight', 'textAlign', 'textDecoration', 'textTransform', 'cursor', 'zIndex' ];
+	'borderTop', 'borderRight', 'borderBottom', 'borderColor', 'display', 'overflow', 'margin', 'marginLeft', 'marginTop', 'marginRight', 'marginBottom', 'padding', 'paddingLeft', 'paddingTop', 'paddingRight', 'paddingBottom', 'color',
+	'background', 'backgroundColor', 'opacity', 'fontSize', 'fontWeight', 'textAlign', 'textDecoration', 'textTransform', 'cursor', 'zIndex' ];
 
 properties.forEach( function ( property ) {
 
@@ -69,6 +147,7 @@ properties.forEach( function ( property ) {
 	UI.Element.prototype[ method ] = function () {
 
 		this.setStyle( property, arguments );
+
 		return this;
 
 	};
@@ -93,6 +172,53 @@ events.forEach( function ( event ) {
 
 } );
 
+// Span
+
+UI.Span = function () {
+
+	UI.Element.call( this );
+
+	this.dom = document.createElement( 'span' );
+
+	return this;
+
+};
+
+UI.Span.prototype = Object.create( UI.Element.prototype );
+UI.Span.prototype.constructor = UI.Span;
+
+// Div
+
+UI.Div = function () {
+
+	UI.Element.call( this );
+
+	this.dom = document.createElement( 'div' );
+
+	return this;
+
+};
+
+UI.Div.prototype = Object.create( UI.Element.prototype );
+UI.Div.prototype.constructor = UI.Div;
+
+// Row
+
+UI.Row = function () {
+
+	UI.Element.call( this );
+
+	var dom = document.createElement( 'div' );
+	dom.className = 'Row';
+
+	this.dom = dom;
+
+	return this;
+
+};
+
+UI.Row.prototype = Object.create( UI.Element.prototype );
+UI.Row.prototype.constructor = UI.Row;
 
 // Panel
 
@@ -106,188 +232,11 @@ UI.Panel = function () {
 	this.dom = dom;
 
 	return this;
+
 };
 
 UI.Panel.prototype = Object.create( UI.Element.prototype );
 UI.Panel.prototype.constructor = UI.Panel;
-
-UI.Panel.prototype.add = function () {
-
-	for ( var i = 0; i < arguments.length; i ++ ) {
-
-		var argument = arguments[ i ];
-
-		if ( argument instanceof UI.Element ) {
-
-			this.dom.appendChild( argument.dom );
-
-		} else {
-
-			console.error( 'UI.Panel:', argument, 'is not an instance of UI.Element.' )
-
-		}
-
-	}
-
-	return this;
-
-};
-
-
-UI.Panel.prototype.remove = function () {
-
-	for ( var i = 0; i < arguments.length; i ++ ) {
-
-		var argument = arguments[ i ];
-
-		if ( argument instanceof UI.Element ) {
-
-			this.dom.removeChild( argument.dom );
-
-		} else {
-
-			console.error( 'UI.Panel:', argument, 'is not an instance of UI.Element.' )
-
-		}
-
-	}
-
-	return this;
-
-};
-
-UI.Panel.prototype.clear = function () {
-
-	while ( this.dom.children.length ) {
-
-		this.dom.removeChild( this.dom.lastChild );
-
-	}
-
-};
-
-
-// Collapsible Panel
-
-UI.CollapsiblePanel = function () {
-
-	UI.Panel.call( this );
-
-	this.setClass( 'Panel Collapsible' );
-
-	var scope = this;
-
-	this.static = new UI.Panel();
-	this.static.setClass( 'Static' );
-	this.static.onClick( function () {
-		scope.toggle();
-	} );
-	this.dom.appendChild( this.static.dom );
-
-	this.contents = new UI.Panel();
-	this.contents.setClass( 'Content' );
-	this.dom.appendChild( this.contents.dom );
-
-	var button = new UI.Panel();
-	button.setClass( 'Button' );
-	this.static.add( button );
-
-	this.isCollapsed = false;
-
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype = Object.create( UI.Panel.prototype );
-UI.CollapsiblePanel.prototype.constructor = UI.CollapsiblePanel;
-
-UI.CollapsiblePanel.prototype.addStatic = function () {
-
-	this.static.add.apply( this.static, arguments );
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.removeStatic = function () {
-
-	this.static.remove.apply( this.static, arguments );
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.clearStatic = function () {
-
-	this.static.clear();
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.add = function () {
-
-	this.contents.add.apply( this.contents, arguments );
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.remove = function () {
-
-	this.contents.remove.apply( this.contents, arguments );
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.clear = function () {
-
-	this.contents.clear();
-	return this;
-
-};
-
-UI.CollapsiblePanel.prototype.toggle = function() {
-
-	this.setCollapsed( !this.isCollapsed );
-
-};
-
-UI.CollapsiblePanel.prototype.collapse = function() {
-
-	this.setCollapsed( true );
-
-};
-
-UI.CollapsiblePanel.prototype.expand = function() {
-
-	this.setCollapsed( false );
-
-};
-
-UI.CollapsiblePanel.prototype.setCollapsed = function( boolean ) {
-
-	if ( boolean ) {
-
-		this.dom.classList.add( 'collapsed' );
-
-	} else {
-
-		this.dom.classList.remove( 'collapsed' );
-
-	}
-
-	this.isCollapsed = boolean;
-
-	if ( this.onCollapsedChangeCallback !== undefined ) {
-
-		this.onCollapsedChangeCallback( boolean );
-
-	}
-
-};
-
-UI.CollapsiblePanel.prototype.onCollapsedChange = function ( callback ) {
-
-	this.onCollapsedChangeCallback = callback;
-
-};
 
 // Text
 
@@ -555,9 +504,9 @@ UI.Color = function () {
 	var dom = document.createElement( 'input' );
 	dom.className = 'Color';
 	dom.style.width = '64px';
-	dom.style.height = '16px';
+	dom.style.height = '17px';
 	dom.style.border = '0px';
-	dom.style.padding = '0px';
+	dom.style.padding = '2px';
 	dom.style.backgroundColor = 'transparent';
 
 	try {
@@ -598,7 +547,7 @@ UI.Color.prototype.setValue = function ( value ) {
 
 UI.Color.prototype.setHexValue = function ( hex ) {
 
-	this.dom.value = '#' + ( '000000' + hex.toString( 16 ) ).slice( -6 );
+	this.dom.value = '#' + ( '000000' + hex.toString( 16 ) ).slice( - 6 );
 
 	return this;
 
@@ -625,13 +574,17 @@ UI.Number = function ( number ) {
 
 	}, false );
 
+	this.value = 0;
+
 	this.min = - Infinity;
 	this.max = Infinity;
 
 	this.precision = 2;
 	this.step = 1;
+	this.unit = '';
 
 	this.dom = dom;
+
 	this.setValue( number );
 
 	var changeEvent = document.createEvent( 'HTMLEvents' );
@@ -643,40 +596,44 @@ UI.Number = function ( number ) {
 	var pointer = [ 0, 0 ];
 	var prevPointer = [ 0, 0 ];
 
-	var onMouseDown = function ( event ) {
+	function onMouseDown( event ) {
 
 		event.preventDefault();
 
 		distance = 0;
 
-		onMouseDownValue = parseFloat( dom.value );
+		onMouseDownValue = scope.value;
 
 		prevPointer = [ event.clientX, event.clientY ];
 
 		document.addEventListener( 'mousemove', onMouseMove, false );
 		document.addEventListener( 'mouseup', onMouseUp, false );
 
-	};
+	}
 
-	var onMouseMove = function ( event ) {
+	function onMouseMove( event ) {
 
-		var currentValue = dom.value;
+		var currentValue = scope.value;
 
 		pointer = [ event.clientX, event.clientY ];
 
 		distance += ( pointer[ 0 ] - prevPointer[ 0 ] ) - ( pointer[ 1 ] - prevPointer[ 1 ] );
 
-		var number = onMouseDownValue + ( distance / ( event.shiftKey ? 5 : 50 ) ) * scope.step;
+		var value = onMouseDownValue + ( distance / ( event.shiftKey ? 5 : 50 ) ) * scope.step;
+		value = Math.min( scope.max, Math.max( scope.min, value ) );
 
-		dom.value = Math.min( scope.max, Math.max( scope.min, number ) ).toFixed( scope.precision );
+		if ( currentValue !== value ) {
 
-		if ( currentValue !== dom.value ) dom.dispatchEvent( changeEvent );
+			scope.setValue( value );
+			dom.dispatchEvent( changeEvent );
+
+		}
 
 		prevPointer = [ event.clientX, event.clientY ];
 
-	};
+	}
 
-	var onMouseUp = function ( event ) {
+	function onMouseUp( event ) {
 
 		document.removeEventListener( 'mousemove', onMouseMove, false );
 		document.removeEventListener( 'mouseup', onMouseUp, false );
@@ -688,43 +645,82 @@ UI.Number = function ( number ) {
 
 		}
 
-	};
+	}
 
-	var onChange = function ( event ) {
+	function onTouchStart( event ) {
 
-		var value = 0;
+		if ( event.touches.length === 1 ) {
 
-		try {
+			distance = 0;
 
-			value = eval( dom.value );
+			onMouseDownValue = scope.value;
 
-		} catch ( error ) {
+			prevPointer = [ event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ];
 
-			console.error( error.message );
+			document.addEventListener( 'touchmove', onTouchMove, false );
+			document.addEventListener( 'touchend', onTouchEnd, false );
 
 		}
 
-		dom.value = parseFloat( value );
+	}
 
-	};
+	function onTouchMove( event ) {
 
-	var onFocus = function ( event ) {
+		var currentValue = scope.value;
+
+		pointer = [ event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ];
+
+		distance += ( pointer[ 0 ] - prevPointer[ 0 ] ) - ( pointer[ 1 ] - prevPointer[ 1 ] );
+
+		var value = onMouseDownValue + ( distance / ( event.shiftKey ? 5 : 50 ) ) * scope.step;
+		value = Math.min( scope.max, Math.max( scope.min, value ) );
+
+		if ( currentValue !== value ) {
+
+			scope.setValue( value );
+			dom.dispatchEvent( changeEvent );
+
+		}
+
+		prevPointer = [ event.touches[ 0 ].pageX, event.touches[ 0 ].pageY ];
+
+	}
+
+	function onTouchEnd( event ) {
+
+		if ( event.touches.length === 0 ) {
+
+			document.removeEventListener( 'touchmove', onTouchMove, false );
+			document.removeEventListener( 'touchend', onTouchEnd, false );
+
+		}
+
+	}
+
+	function onChange( event ) {
+
+		scope.setValue( dom.value );
+
+	}
+
+	function onFocus( event ) {
 
 		dom.style.backgroundColor = '';
-		dom.style.borderColor = '#ccc';
 		dom.style.cursor = '';
 
-	};
+	}
 
-	var onBlur = function ( event ) {
+	function onBlur( event ) {
 
 		dom.style.backgroundColor = 'transparent';
-		dom.style.borderColor = 'transparent';
 		dom.style.cursor = 'col-resize';
 
-	};
+	}
+
+	onBlur();
 
 	dom.addEventListener( 'mousedown', onMouseDown, false );
+	dom.addEventListener( 'touchstart', onTouchStart, false );
 	dom.addEventListener( 'change', onChange, false );
 	dom.addEventListener( 'focus', onFocus, false );
 	dom.addEventListener( 'blur', onBlur, false );
@@ -738,7 +734,7 @@ UI.Number.prototype.constructor = UI.Number;
 
 UI.Number.prototype.getValue = function () {
 
-	return parseFloat( this.dom.value );
+	return this.value;
 
 };
 
@@ -746,9 +742,33 @@ UI.Number.prototype.setValue = function ( value ) {
 
 	if ( value !== undefined ) {
 
+		value = parseFloat( value );
+
+		if ( value < this.min ) value = this.min;
+		if ( value > this.max ) value = this.max;
+
+		this.value = value;
 		this.dom.value = value.toFixed( this.precision );
 
+		if ( this.unit !== '' ) this.dom.value += ' ' + this.unit;
+
 	}
+
+	return this;
+
+};
+
+UI.Number.prototype.setPrecision = function ( precision ) {
+
+	this.precision = precision;
+
+	return this;
+
+};
+
+UI.Number.prototype.setStep = function ( step ) {
+
+	this.step = step;
 
 	return this;
 
@@ -763,14 +783,13 @@ UI.Number.prototype.setRange = function ( min, max ) {
 
 };
 
-UI.Number.prototype.setPrecision = function ( precision ) {
+UI.Number.prototype.setUnit = function ( unit ) {
 
-	this.precision = precision;
+	this.unit = unit;
 
 	return this;
 
 };
-
 
 // Integer
 
@@ -782,7 +801,7 @@ UI.Integer = function ( number ) {
 
 	var dom = document.createElement( 'input' );
 	dom.className = 'Number';
-	dom.value = '0.00';
+	dom.value = '0';
 
 	dom.addEventListener( 'keydown', function ( event ) {
 
@@ -790,12 +809,15 @@ UI.Integer = function ( number ) {
 
 	}, false );
 
+	this.value = 0;
+
 	this.min = - Infinity;
 	this.max = Infinity;
 
 	this.step = 1;
 
 	this.dom = dom;
+
 	this.setValue( number );
 
 	var changeEvent = document.createEvent( 'HTMLEvents' );
@@ -807,40 +829,44 @@ UI.Integer = function ( number ) {
 	var pointer = [ 0, 0 ];
 	var prevPointer = [ 0, 0 ];
 
-	var onMouseDown = function ( event ) {
+	function onMouseDown( event ) {
 
 		event.preventDefault();
 
 		distance = 0;
 
-		onMouseDownValue = parseFloat( dom.value );
+		onMouseDownValue = scope.value;
 
 		prevPointer = [ event.clientX, event.clientY ];
 
 		document.addEventListener( 'mousemove', onMouseMove, false );
 		document.addEventListener( 'mouseup', onMouseUp, false );
 
-	};
+	}
 
-	var onMouseMove = function ( event ) {
+	function onMouseMove( event ) {
 
-		var currentValue = dom.value;
+		var currentValue = scope.value;
 
 		pointer = [ event.clientX, event.clientY ];
 
 		distance += ( pointer[ 0 ] - prevPointer[ 0 ] ) - ( pointer[ 1 ] - prevPointer[ 1 ] );
 
-		var number = onMouseDownValue + ( distance / ( event.shiftKey ? 5 : 50 ) ) * scope.step;
+		var value = onMouseDownValue + ( distance / ( event.shiftKey ? 5 : 50 ) ) * scope.step;
+		value = Math.min( scope.max, Math.max( scope.min, value ) ) | 0;
 
-		dom.value = Math.min( scope.max, Math.max( scope.min, number ) ) | 0;
+		if ( currentValue !== value ) {
 
-		if ( currentValue !== dom.value ) dom.dispatchEvent( changeEvent );
+			scope.setValue( value );
+			dom.dispatchEvent( changeEvent );
+
+		}
 
 		prevPointer = [ event.clientX, event.clientY ];
 
-	};
+	}
 
-	var onMouseUp = function ( event ) {
+	function onMouseUp( event ) {
 
 		document.removeEventListener( 'mousemove', onMouseMove, false );
 		document.removeEventListener( 'mouseup', onMouseUp, false );
@@ -852,41 +878,29 @@ UI.Integer = function ( number ) {
 
 		}
 
-	};
+	}
 
-	var onChange = function ( event ) {
+	function onChange( event ) {
 
-		var value = 0;
+		scope.setValue( dom.value );
 
-		try {
+	}
 
-			value = eval( dom.value );
-
-		} catch ( error ) {
-
-			console.error( error.message );
-
-		}
-
-		dom.value = parseInt( value );
-
-	};
-
-	var onFocus = function ( event ) {
+	function onFocus( event ) {
 
 		dom.style.backgroundColor = '';
-		dom.style.borderColor = '#ccc';
 		dom.style.cursor = '';
 
-	};
+	}
 
-	var onBlur = function ( event ) {
+	function onBlur( event ) {
 
 		dom.style.backgroundColor = 'transparent';
-		dom.style.borderColor = 'transparent';
 		dom.style.cursor = 'col-resize';
 
-	};
+	}
+
+	onBlur();
 
 	dom.addEventListener( 'mousedown', onMouseDown, false );
 	dom.addEventListener( 'change', onChange, false );
@@ -902,7 +916,7 @@ UI.Integer.prototype.constructor = UI.Integer;
 
 UI.Integer.prototype.getValue = function () {
 
-	return parseInt( this.dom.value );
+	return this.value;
 
 };
 
@@ -910,9 +924,20 @@ UI.Integer.prototype.setValue = function ( value ) {
 
 	if ( value !== undefined ) {
 
-		this.dom.value = value | 0;
+		value = parseInt( value );
+
+		this.value = value;
+		this.dom.value = value;
 
 	}
+
+	return this;
+
+};
+
+UI.Integer.prototype.setStep = function ( step ) {
+
+	this.step = parseInt( step );
 
 	return this;
 
@@ -972,8 +997,6 @@ UI.Button = function ( value ) {
 
 	UI.Element.call( this );
 
-	var scope = this;
-
 	var dom = document.createElement( 'button' );
 	dom.className = 'Button';
 
@@ -996,48 +1019,268 @@ UI.Button.prototype.setLabel = function ( value ) {
 };
 
 
-// Dialog
+// TabbedPanel
 
-UI.Dialog = function ( value ) {
+UI.TabbedPanel = function ( ) {
 
-	var scope = this;
+	UI.Element.call( this );
 
-	var dom = document.createElement( 'dialog' );
-
-	if ( dom.showModal === undefined ) {
-
-		// fallback
-
-		dom = document.createElement( 'div' );
-		dom.style.display = 'none';
-
-		dom.showModal = function () {
-
-			dom.style.position = 'absolute';
-			dom.style.left = '100px';
-			dom.style.top = '100px';
-			dom.style.zIndex = 1;
-			dom.style.display = '';
-
-		};
-
-	}
-
-	dom.className = 'Dialog';
+	var dom = document.createElement( 'div' );
 
 	this.dom = dom;
 
+	this.setClass( 'TabbedPanel' );
+
+	this.tabs = [];
+	this.panels = [];
+
+	this.tabsDiv = new UI.Div();
+	this.tabsDiv.setClass( 'Tabs' );
+
+	this.panelsDiv = new UI.Div();
+	this.panelsDiv.setClass( 'Panels' );
+
+	this.add( this.tabsDiv );
+	this.add( this.panelsDiv );
+
+	this.selected = '';
+
 	return this;
 
 };
 
-UI.Dialog.prototype = Object.create( UI.Panel.prototype );
-UI.Dialog.prototype.constructor = UI.Dialog;
+UI.TabbedPanel.prototype = Object.create( UI.Element.prototype );
+UI.TabbedPanel.prototype.constructor = UI.TabbedPanel;
 
-UI.Dialog.prototype.showModal = function () {
+UI.TabbedPanel.prototype.select = function ( id ) {
 
-	this.dom.showModal();
+	var tab;
+	var panel;
+	var scope = this;
+
+	// Deselect current selection
+	if ( this.selected && this.selected.length ) {
+
+		tab = this.tabs.find( function ( item ) { return item.dom.id === scope.selected } );
+		panel = this.panels.find( function ( item ) { return item.dom.id === scope.selected } );
+
+		if ( tab ) {
+
+			tab.removeClass( 'selected' );
+
+		}
+
+		if ( panel ) {
+
+			panel.setDisplay( 'none' );
+
+		}
+
+	}
+
+	tab = this.tabs.find( function ( item ) { return item.dom.id === id } );
+	panel = this.panels.find( function ( item ) { return item.dom.id === id } );
+
+	if ( tab ) {
+
+		tab.addClass( 'selected' );
+
+	}
+
+	if ( panel ) {
+
+		panel.setDisplay( '' );
+
+	}
+
+	this.selected = id;
 
 	return this;
 
 };
+
+UI.TabbedPanel.prototype.addTab = function ( id, label, items ) {
+
+	var tab = new UI.TabbedPanel.Tab( label, this );
+	tab.setId( id );
+	this.tabs.push( tab );
+	this.tabsDiv.add( tab );
+
+	var panel = new UI.Div();
+	panel.setId( id );
+	panel.add( items );
+	panel.setDisplay( 'none' );
+	this.panels.push( panel );
+	this.panelsDiv.add( panel );
+
+	this.select( id );
+
+};
+
+UI.TabbedPanel.Tab = function ( text, parent ) {
+
+	UI.Text.call( this, text );
+	this.parent = parent;
+
+	this.setClass( 'Tab' );
+
+	var scope = this;
+
+	this.dom.addEventListener( 'click', function ( event ) {
+
+		scope.parent.select( scope.dom.id );
+
+	} );
+
+	return this;
+
+};
+
+UI.TabbedPanel.Tab.prototype = Object.create( UI.Text.prototype );
+UI.TabbedPanel.Tab.prototype.constructor = UI.TabbedPanel.Tab;
+
+// Listbox
+UI.Listbox = function ( ) {
+
+	UI.Element.call( this );
+
+	var dom = document.createElement( 'div' );
+	dom.className = 'Listbox';
+	dom.tabIndex = 0;
+
+	this.dom = dom;
+	this.items = [];
+	this.listitems = [];
+	this.selectedIndex = 0;
+	this.selectedValue = null;
+
+	return this;
+
+};
+
+UI.Listbox.prototype = Object.create( UI.Element.prototype );
+UI.Listbox.prototype.constructor = UI.Listbox;
+
+UI.Listbox.prototype.setItems = function ( items ) {
+
+	if ( Array.isArray( items ) ) {
+
+		this.items = items;
+
+	}
+
+	this.render();
+
+};
+
+UI.Listbox.prototype.render = function ( ) {
+
+	while ( this.listitems.length ) {
+
+		var item = this.listitems[ 0 ];
+
+		item.dom.remove();
+
+		this.listitems.splice( 0, 1 );
+
+	}
+
+	for ( var i = 0; i < this.items.length; i ++ ) {
+
+		var item = this.items[ i ];
+
+		var listitem = new UI.Listbox.ListboxItem( this );
+		listitem.setId( item.id || `Listbox-${i}` );
+		listitem.setTextContent( item.name || item.type );
+		this.add( listitem );
+
+	}
+
+};
+
+// Assuming user passes valid list items
+UI.Listbox.prototype.add = function () {
+
+	var items = Array.from( arguments );
+
+	this.listitems = this.listitems.concat( items );
+
+	UI.Element.prototype.add.apply( this, items );
+
+};
+
+UI.Listbox.prototype.selectIndex = function ( index ) {
+
+	if ( index >= 0 && index < this.items.length ) {
+
+		this.setValue( this.listitems[ index ].getId() );
+
+	}
+
+	this.selectedIndex = index;
+
+};
+
+UI.Listbox.prototype.getValue = function () {
+
+	return this.selectedValue;
+
+};
+
+UI.Listbox.prototype.setValue = function ( value ) {
+
+	for ( var i = 0; i < this.listitems.length; i ++ ) {
+
+		var element = this.listitems[ i ];
+
+		if ( element.getId() === value ) {
+
+			element.addClass( 'active' );
+
+		} else {
+
+			element.removeClass( 'active' );
+
+		}
+
+	}
+
+	this.selectedValue = value;
+
+	var changeEvent = document.createEvent( 'HTMLEvents' );
+	changeEvent.initEvent( 'change', true, true );
+	this.dom.dispatchEvent( changeEvent );
+
+};
+
+// Listbox Item
+UI.Listbox.ListboxItem = function ( parent ) {
+
+	UI.Element.call( this );
+
+	var dom = document.createElement( 'div' );
+	dom.className = 'ListboxItem';
+
+	this.parent = parent;
+	this.dom = dom;
+
+	var scope = this;
+
+	function onClick() {
+
+		if ( scope.parent ) {
+
+			scope.parent.setValue( scope.getId( ) );
+
+		}
+
+	}
+
+	dom.addEventListener( 'click', onClick, false );
+
+	return this;
+
+};
+
+UI.Listbox.ListboxItem.prototype = Object.create( UI.Element.prototype );
+UI.Listbox.ListboxItem.prototype.constructor = UI.Listbox.ListboxItem;

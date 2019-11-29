@@ -1,13 +1,34 @@
+import { Vector3 } from '../math/Vector3.js';
+import { Box3 } from '../math/Box3.js';
+import { EventDispatcher } from './EventDispatcher.js';
+import { BufferAttribute, Float32BufferAttribute, Uint16BufferAttribute, Uint32BufferAttribute } from './BufferAttribute.js';
+import { Sphere } from '../math/Sphere.js';
+import { DirectGeometry } from './DirectGeometry.js';
+import { Object3D } from './Object3D.js';
+import { Matrix4 } from '../math/Matrix4.js';
+import { Matrix3 } from '../math/Matrix3.js';
+import { _Math } from '../math/Math.js';
+import { arrayMax } from '../utils.js';
+
 /**
  * @author alteredq / http://alteredqualia.com/
  * @author mrdoob / http://mrdoob.com/
  */
 
-THREE.BufferGeometry = function () {
+var _bufferGeometryId = 1; // BufferGeometry uses odd numbers as Id
 
-	Object.defineProperty( this, 'id', { value: THREE.GeometryIdCount ++ } );
+var _m1 = new Matrix4();
+var _obj = new Object3D();
+var _offset = new Vector3();
+var _box = new Box3();
+var _boxMorphTargets = new Box3();
+var _vector = new Vector3();
 
-	this.uuid = THREE.Math.generateUUID();
+function BufferGeometry() {
+
+	Object.defineProperty( this, 'id', { value: _bufferGeometryId += 2 } );
+
+	this.uuid = _Math.generateUUID();
 
 	this.name = '';
 	this.type = 'BufferGeometry';
@@ -16,6 +37,7 @@ THREE.BufferGeometry = function () {
 	this.attributes = {};
 
 	this.morphAttributes = {};
+	this.morphTargetsRelative = false;
 
 	this.groups = [];
 
@@ -24,18 +46,15 @@ THREE.BufferGeometry = function () {
 
 	this.drawRange = { start: 0, count: Infinity };
 
-};
+	this.userData = {};
 
-THREE.BufferGeometry.prototype = {
+}
 
-	constructor: THREE.BufferGeometry,
+BufferGeometry.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
 
-	addIndex: function ( index ) {
+	constructor: BufferGeometry,
 
-		console.warn( 'THREE.BufferGeometry: .addIndex() has been renamed to .setIndex().' );
-		this.setIndex( index );
-
-	},
+	isBufferGeometry: true,
 
 	getIndex: function () {
 
@@ -45,32 +64,15 @@ THREE.BufferGeometry.prototype = {
 
 	setIndex: function ( index ) {
 
-		this.index = index;
+		if ( Array.isArray( index ) ) {
 
-	},
+			this.index = new ( arrayMax( index ) > 65535 ? Uint32BufferAttribute : Uint16BufferAttribute )( index, 1 );
 
-	addAttribute: function ( name, attribute ) {
+		} else {
 
-		if ( attribute instanceof THREE.BufferAttribute === false && attribute instanceof THREE.InterleavedBufferAttribute === false ) {
-
-			console.warn( 'THREE.BufferGeometry: .addAttribute() now expects ( name, attribute ).' );
-
-			this.addAttribute( name, new THREE.BufferAttribute( arguments[ 1 ], arguments[ 2 ] ) );
-
-			return;
+			this.index = index;
 
 		}
-
-		if ( name === 'index' ) {
-
-			console.warn( 'THREE.BufferGeometry.addAttribute: Use .setIndex() for index attribute.' );
-			this.setIndex( attribute );
-
-			return;
-
-		}
-
-		this.attributes[ name ] = attribute;
 
 	},
 
@@ -80,43 +82,19 @@ THREE.BufferGeometry.prototype = {
 
 	},
 
-	removeAttribute: function ( name ) {
+	setAttribute: function ( name, attribute ) {
+
+		this.attributes[ name ] = attribute;
+
+		return this;
+
+	},
+
+	deleteAttribute: function ( name ) {
 
 		delete this.attributes[ name ];
 
-	},
-
-	get drawcalls() {
-
-		console.error( 'THREE.BufferGeometry: .drawcalls has been renamed to .groups.' );
-		return this.groups;
-
-	},
-
-	get offsets() {
-
-		console.warn( 'THREE.BufferGeometry: .offsets has been renamed to .groups.' );
-		return this.groups;
-
-	},
-
-	addDrawCall: function ( start, count, indexOffset ) {
-
-		if ( indexOffset !== undefined ) {
-
-			console.warn( 'THREE.BufferGeometry: .addDrawCall() no longer supports indexOffset.' );
-
-		}
-
-		console.warn( 'THREE.BufferGeometry: .addDrawCall() is now .addGroup().' );
-		this.addGroup( start, count );
-
-	},
-
-	clearDrawCalls: function () {
-
-		console.warn( 'THREE.BufferGeometry: .clearDrawCalls() is now .clearGroups().' );
-		this.clearGroups();
+		return this;
 
 	},
 
@@ -151,7 +129,7 @@ THREE.BufferGeometry.prototype = {
 
 		if ( position !== undefined ) {
 
-			matrix.applyToVector3Array( position.array );
+			matrix.applyToBufferAttribute( position );
 			position.needsUpdate = true;
 
 		}
@@ -160,10 +138,22 @@ THREE.BufferGeometry.prototype = {
 
 		if ( normal !== undefined ) {
 
-			var normalMatrix = new THREE.Matrix3().getNormalMatrix( matrix );
+			var normalMatrix = new Matrix3().getNormalMatrix( matrix );
 
-			normalMatrix.applyToVector3Array( normal.array );
+			normalMatrix.applyToBufferAttribute( normal );
 			normal.needsUpdate = true;
+
+		}
+
+		var tangent = this.attributes.tangent;
+
+		if ( tangent !== undefined ) {
+
+			var normalMatrix = new Matrix3().getNormalMatrix( matrix );
+
+			// Tangent is vec4, but the '.w' component is a sign value (+1/-1).
+			normalMatrix.applyToBufferAttribute( tangent );
+			tangent.needsUpdate = true;
 
 		}
 
@@ -179,135 +169,91 @@ THREE.BufferGeometry.prototype = {
 
 		}
 
+		return this;
+
 	},
 
-	rotateX: function () {
+	rotateX: function ( angle ) {
 
 		// rotate geometry around world x-axis
 
-		var m1;
+		_m1.makeRotationX( angle );
 
-		return function rotateX( angle ) {
+		this.applyMatrix( _m1 );
 
-			if ( m1 === undefined ) m1 = new THREE.Matrix4();
+		return this;
 
-			m1.makeRotationX( angle );
+	},
 
-			this.applyMatrix( m1 );
-
-			return this;
-
-		};
-
-	}(),
-
-	rotateY: function () {
+	rotateY: function ( angle ) {
 
 		// rotate geometry around world y-axis
 
-		var m1;
+		_m1.makeRotationY( angle );
 
-		return function rotateY( angle ) {
+		this.applyMatrix( _m1 );
 
-			if ( m1 === undefined ) m1 = new THREE.Matrix4();
+		return this;
 
-			m1.makeRotationY( angle );
+	},
 
-			this.applyMatrix( m1 );
-
-			return this;
-
-		};
-
-	}(),
-
-	rotateZ: function () {
+	rotateZ: function ( angle ) {
 
 		// rotate geometry around world z-axis
 
-		var m1;
+		_m1.makeRotationZ( angle );
 
-		return function rotateZ( angle ) {
+		this.applyMatrix( _m1 );
 
-			if ( m1 === undefined ) m1 = new THREE.Matrix4();
+		return this;
 
-			m1.makeRotationZ( angle );
+	},
 
-			this.applyMatrix( m1 );
-
-			return this;
-
-		};
-
-	}(),
-
-	translate: function () {
+	translate: function ( x, y, z ) {
 
 		// translate geometry
 
-		var m1;
+		_m1.makeTranslation( x, y, z );
 
-		return function translate( x, y, z ) {
+		this.applyMatrix( _m1 );
 
-			if ( m1 === undefined ) m1 = new THREE.Matrix4();
+		return this;
 
-			m1.makeTranslation( x, y, z );
+	},
 
-			this.applyMatrix( m1 );
-
-			return this;
-
-		};
-
-	}(),
-
-	scale: function () {
+	scale: function ( x, y, z ) {
 
 		// scale geometry
 
-		var m1;
+		_m1.makeScale( x, y, z );
 
-		return function scale( x, y, z ) {
+		this.applyMatrix( _m1 );
 
-			if ( m1 === undefined ) m1 = new THREE.Matrix4();
+		return this;
 
-			m1.makeScale( x, y, z );
+	},
 
-			this.applyMatrix( m1 );
+	lookAt: function ( vector ) {
 
-			return this;
+		_obj.lookAt( vector );
 
-		};
+		_obj.updateMatrix();
 
-	}(),
+		this.applyMatrix( _obj.matrix );
 
-	lookAt: function () {
+		return this;
 
-		var obj;
-
-		return function lookAt( vector ) {
-
-			if ( obj === undefined ) obj = new THREE.Object3D();
-
-			obj.lookAt( vector );
-
-			obj.updateMatrix();
-
-			this.applyMatrix( obj.matrix );
-
-		};
-
-	}(),
+	},
 
 	center: function () {
 
 		this.computeBoundingBox();
 
-		var offset = this.boundingBox.center().negate();
+		this.boundingBox.getCenter( _offset ).negate();
 
-		this.translate( offset.x, offset.y, offset.z );
+		this.translate( _offset.x, _offset.y, _offset.z );
 
-		return offset;
+		return this;
 
 	},
 
@@ -317,19 +263,19 @@ THREE.BufferGeometry.prototype = {
 
 		var geometry = object.geometry;
 
-		if ( object instanceof THREE.Points || object instanceof THREE.Line ) {
+		if ( object.isPoints || object.isLine ) {
 
-			var positions = new THREE.Float32Attribute( geometry.vertices.length * 3, 3 );
-			var colors = new THREE.Float32Attribute( geometry.colors.length * 3, 3 );
+			var positions = new Float32BufferAttribute( geometry.vertices.length * 3, 3 );
+			var colors = new Float32BufferAttribute( geometry.colors.length * 3, 3 );
 
-			this.addAttribute( 'position', positions.copyVector3sArray( geometry.vertices ) );
-			this.addAttribute( 'color', colors.copyColorsArray( geometry.colors ) );
+			this.setAttribute( 'position', positions.copyVector3sArray( geometry.vertices ) );
+			this.setAttribute( 'color', colors.copyColorsArray( geometry.colors ) );
 
 			if ( geometry.lineDistances && geometry.lineDistances.length === geometry.vertices.length ) {
 
-				var lineDistances = new THREE.Float32Attribute( geometry.lineDistances.length, 1 );
+				var lineDistances = new Float32BufferAttribute( geometry.lineDistances.length, 1 );
 
-				this.addAttribute( 'lineDistance',  lineDistances.copyArray( geometry.lineDistances ) );
+				this.setAttribute( 'lineDistance', lineDistances.copyArray( geometry.lineDistances ) );
 
 			}
 
@@ -345,9 +291,9 @@ THREE.BufferGeometry.prototype = {
 
 			}
 
-		} else if ( object instanceof THREE.Mesh ) {
+		} else if ( object.isMesh ) {
 
-			if ( geometry instanceof THREE.Geometry ) {
+			if ( geometry && geometry.isGeometry ) {
 
 				this.fromGeometry( geometry );
 
@@ -359,13 +305,37 @@ THREE.BufferGeometry.prototype = {
 
 	},
 
+	setFromPoints: function ( points ) {
+
+		var position = [];
+
+		for ( var i = 0, l = points.length; i < l; i ++ ) {
+
+			var point = points[ i ];
+			position.push( point.x, point.y, point.z || 0 );
+
+		}
+
+		this.setAttribute( 'position', new Float32BufferAttribute( position, 3 ) );
+
+		return this;
+
+	},
+
 	updateFromObject: function ( object ) {
 
 		var geometry = object.geometry;
 
-		if ( object instanceof THREE.Mesh ) {
+		if ( object.isMesh ) {
 
 			var direct = geometry.__directGeometry;
+
+			if ( geometry.elementsNeedUpdate === true ) {
+
+				direct = undefined;
+				geometry.elementsNeedUpdate = false;
+
+			}
 
 			if ( direct === undefined ) {
 
@@ -389,9 +359,11 @@ THREE.BufferGeometry.prototype = {
 
 		}
 
+		var attribute;
+
 		if ( geometry.verticesNeedUpdate === true ) {
 
-			var attribute = this.attributes.position;
+			attribute = this.attributes.position;
 
 			if ( attribute !== undefined ) {
 
@@ -406,7 +378,7 @@ THREE.BufferGeometry.prototype = {
 
 		if ( geometry.normalsNeedUpdate === true ) {
 
-			var attribute = this.attributes.normal;
+			attribute = this.attributes.normal;
 
 			if ( attribute !== undefined ) {
 
@@ -421,7 +393,7 @@ THREE.BufferGeometry.prototype = {
 
 		if ( geometry.colorsNeedUpdate === true ) {
 
-			var attribute = this.attributes.color;
+			attribute = this.attributes.color;
 
 			if ( attribute !== undefined ) {
 
@@ -434,9 +406,24 @@ THREE.BufferGeometry.prototype = {
 
 		}
 
+		if ( geometry.uvsNeedUpdate ) {
+
+			attribute = this.attributes.uv;
+
+			if ( attribute !== undefined ) {
+
+				attribute.copyVector2sArray( geometry.uvs );
+				attribute.needsUpdate = true;
+
+			}
+
+			geometry.uvsNeedUpdate = false;
+
+		}
+
 		if ( geometry.lineDistancesNeedUpdate ) {
 
-			var attribute = this.attributes.lineDistance;
+			attribute = this.attributes.lineDistance;
 
 			if ( attribute !== undefined ) {
 
@@ -464,7 +451,7 @@ THREE.BufferGeometry.prototype = {
 
 	fromGeometry: function ( geometry ) {
 
-		geometry.__directGeometry = new THREE.DirectGeometry().fromGeometry( geometry );
+		geometry.__directGeometry = new DirectGeometry().fromGeometry( geometry );
 
 		return this.fromDirectGeometry( geometry.__directGeometry );
 
@@ -473,41 +460,33 @@ THREE.BufferGeometry.prototype = {
 	fromDirectGeometry: function ( geometry ) {
 
 		var positions = new Float32Array( geometry.vertices.length * 3 );
-		this.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ).copyVector3sArray( geometry.vertices ) );
+		this.setAttribute( 'position', new BufferAttribute( positions, 3 ).copyVector3sArray( geometry.vertices ) );
 
 		if ( geometry.normals.length > 0 ) {
 
 			var normals = new Float32Array( geometry.normals.length * 3 );
-			this.addAttribute( 'normal', new THREE.BufferAttribute( normals, 3 ).copyVector3sArray( geometry.normals ) );
+			this.setAttribute( 'normal', new BufferAttribute( normals, 3 ).copyVector3sArray( geometry.normals ) );
 
 		}
 
 		if ( geometry.colors.length > 0 ) {
 
 			var colors = new Float32Array( geometry.colors.length * 3 );
-			this.addAttribute( 'color', new THREE.BufferAttribute( colors, 3 ).copyColorsArray( geometry.colors ) );
+			this.setAttribute( 'color', new BufferAttribute( colors, 3 ).copyColorsArray( geometry.colors ) );
 
 		}
 
 		if ( geometry.uvs.length > 0 ) {
 
 			var uvs = new Float32Array( geometry.uvs.length * 2 );
-			this.addAttribute( 'uv', new THREE.BufferAttribute( uvs, 2 ).copyVector2sArray( geometry.uvs ) );
+			this.setAttribute( 'uv', new BufferAttribute( uvs, 2 ).copyVector2sArray( geometry.uvs ) );
 
 		}
 
 		if ( geometry.uvs2.length > 0 ) {
 
 			var uvs2 = new Float32Array( geometry.uvs2.length * 2 );
-			this.addAttribute( 'uv2', new THREE.BufferAttribute( uvs2, 2 ).copyVector2sArray( geometry.uvs2 ) );
-
-		}
-
-		if ( geometry.indices.length > 0 ) {
-
-			var TypeArray = geometry.vertices.length > 65535 ? Uint32Array : Uint16Array;
-			var indices = new TypeArray( geometry.indices.length * 3 );
-			this.setIndex( new THREE.BufferAttribute( indices, 1 ).copyIndicesArray( geometry.indices ) );
+			this.setAttribute( 'uv2', new BufferAttribute( uvs2, 2 ).copyVector2sArray( geometry.uvs2 ) );
 
 		}
 
@@ -526,9 +505,10 @@ THREE.BufferGeometry.prototype = {
 
 				var morphTarget = morphTargets[ i ];
 
-				var attribute = new THREE.Float32Attribute( morphTarget.length * 3, 3 );
+				var attribute = new Float32BufferAttribute( morphTarget.data.length * 3, 3 );
+				attribute.name = morphTarget.name;
 
-				array.push( attribute.copyVector3sArray( morphTarget ) );
+				array.push( attribute.copyVector3sArray( morphTarget.data ) );
 
 			}
 
@@ -540,15 +520,15 @@ THREE.BufferGeometry.prototype = {
 
 		if ( geometry.skinIndices.length > 0 ) {
 
-			var skinIndices = new THREE.Float32Attribute( geometry.skinIndices.length * 4, 4 );
-			this.addAttribute( 'skinIndex', skinIndices.copyVector4sArray( geometry.skinIndices ) );
+			var skinIndices = new Float32BufferAttribute( geometry.skinIndices.length * 4, 4 );
+			this.setAttribute( 'skinIndex', skinIndices.copyVector4sArray( geometry.skinIndices ) );
 
 		}
 
 		if ( geometry.skinWeights.length > 0 ) {
 
-			var skinWeights = new THREE.Float32Attribute( geometry.skinWeights.length * 4, 4 );
-			this.addAttribute( 'skinWeight', skinWeights.copyVector4sArray( geometry.skinWeights ) );
+			var skinWeights = new Float32BufferAttribute( geometry.skinWeights.length * 4, 4 );
+			this.setAttribute( 'skinWeight', skinWeights.copyVector4sArray( geometry.skinWeights ) );
 
 		}
 
@@ -572,104 +552,162 @@ THREE.BufferGeometry.prototype = {
 
 	computeBoundingBox: function () {
 
-		var vector = new THREE.Vector3();
+		if ( this.boundingBox === null ) {
 
-		return function () {
+			this.boundingBox = new Box3();
 
-			if ( this.boundingBox === null ) {
+		}
 
-				this.boundingBox = new THREE.Box3();
+		var position = this.attributes.position;
+		var morphAttributesPosition = this.morphAttributes.position;
 
-			}
+		if ( position !== undefined ) {
 
-			var positions = this.attributes.position.array;
+			this.boundingBox.setFromBufferAttribute( position );
 
-			if ( positions ) {
+			// process morph attributes if present
 
-				var bb = this.boundingBox;
-				bb.makeEmpty();
+			if ( morphAttributesPosition ) {
 
-				for ( var i = 0, il = positions.length; i < il; i += 3 ) {
+				for ( var i = 0, il = morphAttributesPosition.length; i < il; i ++ ) {
 
-					vector.fromArray( positions, i );
-					bb.expandByPoint( vector );
+					var morphAttribute = morphAttributesPosition[ i ];
+					_box.setFromBufferAttribute( morphAttribute );
+
+					if ( this.morphTargetsRelative ) {
+
+						_vector.addVectors( this.boundingBox.min, _box.min );
+						this.boundingBox.expandByPoint( _vector );
+
+						_vector.addVectors( this.boundingBox.max, _box.max );
+						this.boundingBox.expandByPoint( _vector );
+
+					} else {
+
+						this.boundingBox.expandByPoint( _box.min );
+						this.boundingBox.expandByPoint( _box.max );
+
+					}
 
 				}
 
 			}
 
-			if ( positions === undefined || positions.length === 0 ) {
+		} else {
 
-				this.boundingBox.min.set( 0, 0, 0 );
-				this.boundingBox.max.set( 0, 0, 0 );
+			this.boundingBox.makeEmpty();
 
-			}
+		}
 
-			if ( isNaN( this.boundingBox.min.x ) || isNaN( this.boundingBox.min.y ) || isNaN( this.boundingBox.min.z ) ) {
+		if ( isNaN( this.boundingBox.min.x ) || isNaN( this.boundingBox.min.y ) || isNaN( this.boundingBox.min.z ) ) {
 
-				console.error( 'THREE.BufferGeometry.computeBoundingBox: Computed min/max have NaN values. The "position" attribute is likely to have NaN values.', this );
+			console.error( 'THREE.BufferGeometry.computeBoundingBox: Computed min/max have NaN values. The "position" attribute is likely to have NaN values.', this );
 
-			}
+		}
 
-		};
-
-	}(),
+	},
 
 	computeBoundingSphere: function () {
 
-		var box = new THREE.Box3();
-		var vector = new THREE.Vector3();
+		if ( this.boundingSphere === null ) {
 
-		return function () {
+			this.boundingSphere = new Sphere();
 
-			if ( this.boundingSphere === null ) {
+		}
 
-				this.boundingSphere = new THREE.Sphere();
+		var position = this.attributes.position;
+		var morphAttributesPosition = this.morphAttributes.position;
 
-			}
+		if ( position ) {
 
-			var positions = this.attributes.position.array;
+			// first, find the center of the bounding sphere
 
-			if ( positions ) {
+			var center = this.boundingSphere.center;
 
-				box.makeEmpty();
+			_box.setFromBufferAttribute( position );
 
-				var center = this.boundingSphere.center;
+			// process morph attributes if present
 
-				for ( var i = 0, il = positions.length; i < il; i += 3 ) {
+			if ( morphAttributesPosition ) {
 
-					vector.fromArray( positions, i );
-					box.expandByPoint( vector );
+				for ( var i = 0, il = morphAttributesPosition.length; i < il; i ++ ) {
 
-				}
+					var morphAttribute = morphAttributesPosition[ i ];
+					_boxMorphTargets.setFromBufferAttribute( morphAttribute );
 
-				box.center( center );
+					if ( this.morphTargetsRelative ) {
 
-				// hoping to find a boundingSphere with a radius smaller than the
-				// boundingSphere of the boundingBox: sqrt(3) smaller in the best case
+						_vector.addVectors( _box.min, _boxMorphTargets.min );
+						_box.expandByPoint( _vector );
 
-				var maxRadiusSq = 0;
+						_vector.addVectors( _box.max, _boxMorphTargets.max );
+						_box.expandByPoint( _vector );
 
-				for ( var i = 0, il = positions.length; i < il; i += 3 ) {
+					} else {
 
-					vector.fromArray( positions, i );
-					maxRadiusSq = Math.max( maxRadiusSq, center.distanceToSquared( vector ) );
+						_box.expandByPoint( _boxMorphTargets.min );
+						_box.expandByPoint( _boxMorphTargets.max );
 
-				}
-
-				this.boundingSphere.radius = Math.sqrt( maxRadiusSq );
-
-				if ( isNaN( this.boundingSphere.radius ) ) {
-
-					console.error( 'THREE.BufferGeometry.computeBoundingSphere(): Computed radius is NaN. The "position" attribute is likely to have NaN values.', this );
+					}
 
 				}
 
 			}
 
-		};
+			_box.getCenter( center );
 
-	}(),
+			// second, try to find a boundingSphere with a radius smaller than the
+			// boundingSphere of the boundingBox: sqrt(3) smaller in the best case
+
+			var maxRadiusSq = 0;
+
+			for ( var i = 0, il = position.count; i < il; i ++ ) {
+
+				_vector.fromBufferAttribute( position, i );
+
+				maxRadiusSq = Math.max( maxRadiusSq, center.distanceToSquared( _vector ) );
+
+			}
+
+			// process morph attributes if present
+
+			if ( morphAttributesPosition ) {
+
+				for ( var i = 0, il = morphAttributesPosition.length; i < il; i ++ ) {
+
+					var morphAttribute = morphAttributesPosition[ i ];
+					var morphTargetsRelative = this.morphTargetsRelative;
+
+					for ( var j = 0, jl = morphAttribute.count; j < jl; j ++ ) {
+
+						_vector.fromBufferAttribute( morphAttribute, j );
+
+						if ( morphTargetsRelative ) {
+
+							_offset.fromBufferAttribute( position, j );
+							_vector.add( _offset );
+
+						}
+
+						maxRadiusSq = Math.max( maxRadiusSq, center.distanceToSquared( _vector ) );
+
+					}
+
+				}
+
+			}
+
+			this.boundingSphere.radius = Math.sqrt( maxRadiusSq );
+
+			if ( isNaN( this.boundingSphere.radius ) ) {
+
+				console.error( 'THREE.BufferGeometry.computeBoundingSphere(): Computed radius is NaN. The "position" attribute is likely to have NaN values.', this );
+
+			}
+
+		}
+
+	},
 
 	computeFaceNormals: function () {
 
@@ -681,7 +719,6 @@ THREE.BufferGeometry.prototype = {
 
 		var index = this.index;
 		var attributes = this.attributes;
-		var groups = this.groups;
 
 		if ( attributes.position ) {
 
@@ -689,17 +726,17 @@ THREE.BufferGeometry.prototype = {
 
 			if ( attributes.normal === undefined ) {
 
-				this.addAttribute( 'normal', new THREE.BufferAttribute( new Float32Array( positions.length ), 3 ) );
+				this.setAttribute( 'normal', new BufferAttribute( new Float32Array( positions.length ), 3 ) );
 
 			} else {
 
 				// reset existing normals to zero
 
-				var normals = attributes.normal.array;
+				var array = attributes.normal.array;
 
-				for ( var i = 0, il = normals.length; i < il; i ++ ) {
+				for ( var i = 0, il = array.length; i < il; i ++ ) {
 
-					normals[ i ] = 0;
+					array[ i ] = 0;
 
 				}
 
@@ -707,14 +744,9 @@ THREE.BufferGeometry.prototype = {
 
 			var normals = attributes.normal.array;
 
-			var vA, vB, vC,
-
-			pA = new THREE.Vector3(),
-			pB = new THREE.Vector3(),
-			pC = new THREE.Vector3(),
-
-			cb = new THREE.Vector3(),
-			ab = new THREE.Vector3();
+			var vA, vB, vC;
+			var pA = new Vector3(), pB = new Vector3(), pC = new Vector3();
+			var cb = new Vector3(), ab = new Vector3();
 
 			// indexed elements
 
@@ -722,46 +754,31 @@ THREE.BufferGeometry.prototype = {
 
 				var indices = index.array;
 
-				if ( groups.length === 0 ) {
+				for ( var i = 0, il = index.count; i < il; i += 3 ) {
 
-					this.addGroup( 0, indices.length );
+					vA = indices[ i + 0 ] * 3;
+					vB = indices[ i + 1 ] * 3;
+					vC = indices[ i + 2 ] * 3;
 
-				}
+					pA.fromArray( positions, vA );
+					pB.fromArray( positions, vB );
+					pC.fromArray( positions, vC );
 
-				for ( var j = 0, jl = groups.length; j < jl; ++ j ) {
+					cb.subVectors( pC, pB );
+					ab.subVectors( pA, pB );
+					cb.cross( ab );
 
-					var group = groups[ j ];
+					normals[ vA ] += cb.x;
+					normals[ vA + 1 ] += cb.y;
+					normals[ vA + 2 ] += cb.z;
 
-					var start = group.start;
-					var count = group.count;
+					normals[ vB ] += cb.x;
+					normals[ vB + 1 ] += cb.y;
+					normals[ vB + 2 ] += cb.z;
 
-					for ( var i = start, il = start + count; i < il; i += 3 ) {
-
-						vA = indices[ i + 0 ] * 3;
-						vB = indices[ i + 1 ] * 3;
-						vC = indices[ i + 2 ] * 3;
-
-						pA.fromArray( positions, vA );
-						pB.fromArray( positions, vB );
-						pC.fromArray( positions, vC );
-
-						cb.subVectors( pC, pB );
-						ab.subVectors( pA, pB );
-						cb.cross( ab );
-
-						normals[ vA ] += cb.x;
-						normals[ vA + 1 ] += cb.y;
-						normals[ vA + 2 ] += cb.z;
-
-						normals[ vB ] += cb.x;
-						normals[ vB + 1 ] += cb.y;
-						normals[ vB + 2 ] += cb.z;
-
-						normals[ vC ] += cb.x;
-						normals[ vC + 1 ] += cb.y;
-						normals[ vC + 2 ] += cb.z;
-
-					}
+					normals[ vC ] += cb.x;
+					normals[ vC + 1 ] += cb.y;
+					normals[ vC + 2 ] += cb.z;
 
 				}
 
@@ -803,28 +820,25 @@ THREE.BufferGeometry.prototype = {
 
 	},
 
-	computeTangents: function () {
-
-		console.warn( 'THREE.BufferGeometry: .computeTangents() has been removed.' );
-
-	},
-
-	computeOffsets: function ( size ) {
-
-		console.warn( 'THREE.BufferGeometry: .computeOffsets() has been removed.')
-
-	},
-
 	merge: function ( geometry, offset ) {
 
-		if ( geometry instanceof THREE.BufferGeometry === false ) {
+		if ( ! ( geometry && geometry.isBufferGeometry ) ) {
 
 			console.error( 'THREE.BufferGeometry.merge(): geometry not an instance of THREE.BufferGeometry.', geometry );
 			return;
 
 		}
 
-		if ( offset === undefined ) offset = 0;
+		if ( offset === undefined ) {
+
+			offset = 0;
+
+			console.warn(
+				'THREE.BufferGeometry.merge(): Overwriting original geometry, starting at offset=0. '
+				+ 'Use BufferGeometryUtils.mergeBufferGeometries() for lossless merge.'
+			);
+
+		}
 
 		var attributes = this.attributes;
 
@@ -838,9 +852,10 @@ THREE.BufferGeometry.prototype = {
 			var attribute2 = geometry.attributes[ key ];
 			var attributeArray2 = attribute2.array;
 
-			var attributeSize = attribute2.itemSize;
+			var attributeOffset = attribute2.itemSize * offset;
+			var length = Math.min( attributeArray2.length, attributeArray1.length - attributeOffset );
 
-			for ( var i = 0, j = attributeSize * offset; i < attributeArray2.length; i ++, j ++ ) {
+			for ( var i = 0, j = attributeOffset; i < length; i ++, j ++ ) {
 
 				attributeArray1[ j ] = attributeArray2[ i ];
 
@@ -854,23 +869,112 @@ THREE.BufferGeometry.prototype = {
 
 	normalizeNormals: function () {
 
-		var normals = this.attributes.normal.array;
+		var normals = this.attributes.normal;
 
-		var x, y, z, n;
+		for ( var i = 0, il = normals.count; i < il; i ++ ) {
 
-		for ( var i = 0, il = normals.length; i < il; i += 3 ) {
+			_vector.x = normals.getX( i );
+			_vector.y = normals.getY( i );
+			_vector.z = normals.getZ( i );
 
-			x = normals[ i ];
-			y = normals[ i + 1 ];
-			z = normals[ i + 2 ];
+			_vector.normalize();
 
-			n = 1.0 / Math.sqrt( x * x + y * y + z * z );
-
-			normals[ i ] *= n;
-			normals[ i + 1 ] *= n;
-			normals[ i + 2 ] *= n;
+			normals.setXYZ( i, _vector.x, _vector.y, _vector.z );
 
 		}
+
+	},
+
+	toNonIndexed: function () {
+
+		function convertBufferAttribute( attribute, indices ) {
+
+			var array = attribute.array;
+			var itemSize = attribute.itemSize;
+
+			var array2 = new array.constructor( indices.length * itemSize );
+
+			var index = 0, index2 = 0;
+
+			for ( var i = 0, l = indices.length; i < l; i ++ ) {
+
+				index = indices[ i ] * itemSize;
+
+				for ( var j = 0; j < itemSize; j ++ ) {
+
+					array2[ index2 ++ ] = array[ index ++ ];
+
+				}
+
+			}
+
+			return new BufferAttribute( array2, itemSize );
+
+		}
+
+		//
+
+		if ( this.index === null ) {
+
+			console.warn( 'THREE.BufferGeometry.toNonIndexed(): Geometry is already non-indexed.' );
+			return this;
+
+		}
+
+		var geometry2 = new BufferGeometry();
+
+		var indices = this.index.array;
+		var attributes = this.attributes;
+
+		// attributes
+
+		for ( var name in attributes ) {
+
+			var attribute = attributes[ name ];
+
+			var newAttribute = convertBufferAttribute( attribute, indices );
+
+			geometry2.setAttribute( name, newAttribute );
+
+		}
+
+		// morph attributes
+
+		var morphAttributes = this.morphAttributes;
+
+		for ( name in morphAttributes ) {
+
+			var morphArray = [];
+			var morphAttribute = morphAttributes[ name ]; // morphAttribute: array of Float32BufferAttributes
+
+			for ( var i = 0, il = morphAttribute.length; i < il; i ++ ) {
+
+				var attribute = morphAttribute[ i ];
+
+				var newAttribute = convertBufferAttribute( attribute, indices );
+
+				morphArray.push( newAttribute );
+
+			}
+
+			geometry2.morphAttributes[ name ] = morphArray;
+
+		}
+
+		geometry2.morphTargetsRelative = this.morphTargetsRelative;
+
+		// groups
+
+		var groups = this.groups;
+
+		for ( var i = 0, l = groups.length; i < l; i ++ ) {
+
+			var group = groups[ i ];
+			geometry2.addGroup( group.start, group.count, group.materialIndex );
+
+		}
+
+		return geometry2;
 
 	},
 
@@ -878,7 +982,7 @@ THREE.BufferGeometry.prototype = {
 
 		var data = {
 			metadata: {
-				version: 4.4,
+				version: 4.5,
 				type: 'BufferGeometry',
 				generator: 'BufferGeometry.toJSON'
 			}
@@ -889,6 +993,7 @@ THREE.BufferGeometry.prototype = {
 		data.uuid = this.uuid;
 		data.type = this.type;
 		if ( this.name !== '' ) data.name = this.name;
+		if ( Object.keys( this.userData ).length > 0 ) data.userData = this.userData;
 
 		if ( this.parameters !== undefined ) {
 
@@ -910,11 +1015,9 @@ THREE.BufferGeometry.prototype = {
 
 		if ( index !== null ) {
 
-			var array = Array.prototype.slice.call( index.array );
-
 			data.data.index = {
 				type: index.array.constructor.name,
-				array: array
+				array: Array.prototype.slice.call( index.array )
 			};
 
 		}
@@ -925,13 +1028,49 @@ THREE.BufferGeometry.prototype = {
 
 			var attribute = attributes[ key ];
 
-			var array = Array.prototype.slice.call( attribute.array );
+			var attributeData = attribute.toJSON();
 
-			data.data.attributes[ key ] = {
-				itemSize: attribute.itemSize,
-				type: attribute.array.constructor.name,
-				array: array
-			};
+			if ( attribute.name !== '' ) attributeData.name = attribute.name;
+
+			data.data.attributes[ key ] = attributeData;
+
+		}
+
+		var morphAttributes = {};
+		var hasMorphAttributes = false;
+
+		for ( var key in this.morphAttributes ) {
+
+			var attributeArray = this.morphAttributes[ key ];
+
+			var array = [];
+
+			for ( var i = 0, il = attributeArray.length; i < il; i ++ ) {
+
+				var attribute = attributeArray[ i ];
+
+				var attributeData = attribute.toJSON();
+
+				if ( attribute.name !== '' ) attributeData.name = attribute.name;
+
+				array.push( attributeData );
+
+			}
+
+			if ( array.length > 0 ) {
+
+				morphAttributes[ key ] = array;
+
+				hasMorphAttributes = true;
+
+			}
+
+		}
+
+		if ( hasMorphAttributes ) {
+
+			data.data.morphAttributes = morphAttributes;
+			data.data.morphTargetsRelative = this.morphTargetsRelative;
 
 		}
 
@@ -960,11 +1099,52 @@ THREE.BufferGeometry.prototype = {
 
 	clone: function () {
 
-		return new this.constructor().copy( this );
+		/*
+		 // Handle primitives
+
+		 var parameters = this.parameters;
+
+		 if ( parameters !== undefined ) {
+
+		 var values = [];
+
+		 for ( var key in parameters ) {
+
+		 values.push( parameters[ key ] );
+
+		 }
+
+		 var geometry = Object.create( this.constructor.prototype );
+		 this.constructor.apply( geometry, values );
+		 return geometry;
+
+		 }
+
+		 return new this.constructor().copy( this );
+		 */
+
+		return new BufferGeometry().copy( this );
 
 	},
 
 	copy: function ( source ) {
+
+		var name, i, l;
+
+		// reset
+
+		this.index = null;
+		this.attributes = {};
+		this.morphAttributes = {};
+		this.groups = [];
+		this.boundingBox = null;
+		this.boundingSphere = null;
+
+		// name
+
+		this.name = source.name;
+
+		// index
 
 		var index = source.index;
 
@@ -974,23 +1154,77 @@ THREE.BufferGeometry.prototype = {
 
 		}
 
+		// attributes
+
 		var attributes = source.attributes;
 
-		for ( var name in attributes ) {
+		for ( name in attributes ) {
 
 			var attribute = attributes[ name ];
-			this.addAttribute( name, attribute.clone() );
+			this.setAttribute( name, attribute.clone() );
 
 		}
+
+		// morph attributes
+
+		var morphAttributes = source.morphAttributes;
+
+		for ( name in morphAttributes ) {
+
+			var array = [];
+			var morphAttribute = morphAttributes[ name ]; // morphAttribute: array of Float32BufferAttributes
+
+			for ( i = 0, l = morphAttribute.length; i < l; i ++ ) {
+
+				array.push( morphAttribute[ i ].clone() );
+
+			}
+
+			this.morphAttributes[ name ] = array;
+
+		}
+
+		this.morphTargetsRelative = source.morphTargetsRelative;
+
+		// groups
 
 		var groups = source.groups;
 
-		for ( var i = 0, l = groups.length; i < l; i ++ ) {
+		for ( i = 0, l = groups.length; i < l; i ++ ) {
 
 			var group = groups[ i ];
-			this.addGroup( group.start, group.count );
+			this.addGroup( group.start, group.count, group.materialIndex );
 
 		}
+
+		// bounding box
+
+		var boundingBox = source.boundingBox;
+
+		if ( boundingBox !== null ) {
+
+			this.boundingBox = boundingBox.clone();
+
+		}
+
+		// bounding sphere
+
+		var boundingSphere = source.boundingSphere;
+
+		if ( boundingSphere !== null ) {
+
+			this.boundingSphere = boundingSphere.clone();
+
+		}
+
+		// draw range
+
+		this.drawRange.start = source.drawRange.start;
+		this.drawRange.count = source.drawRange.count;
+
+		// user data
+
+		this.userData = source.userData;
 
 		return this;
 
@@ -1002,8 +1236,7 @@ THREE.BufferGeometry.prototype = {
 
 	}
 
-};
+} );
 
-THREE.EventDispatcher.prototype.apply( THREE.BufferGeometry.prototype );
 
-THREE.BufferGeometry.MaxIndex = 65535;
+export { BufferGeometry };

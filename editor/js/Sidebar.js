@@ -4,16 +4,29 @@
 
 var Sidebar = function ( editor ) {
 
-	var container = new UI.Panel();
+	var strings = editor.strings;
+
+	var container = new UI.TabbedPanel();
 	container.setId( 'sidebar' );
 
-	container.add( new Sidebar.Project( editor ) );
-	container.add( new Sidebar.Scene( editor ) );
-	container.add( new Sidebar.Object3D( editor ) );
-	container.add( new Sidebar.Geometry( editor ) );
-	container.add( new Sidebar.Material( editor ) );
-	container.add( new Sidebar.Animation( editor ) );
-	container.add( new Sidebar.Script( editor ) );
+	var scene = new UI.Span().add(
+		new Sidebar.Scene( editor ),
+		new Sidebar.Properties( editor ),
+		new Sidebar.Animation( editor ),
+		new Sidebar.Script( editor )
+	);
+
+	var project = new Sidebar.Project( editor );
+
+	var settings = new UI.Span().add(
+		new Sidebar.Settings( editor ),
+		new Sidebar.History( editor )
+	);
+
+	container.addTab( 'scene', strings.getKey( 'sidebar/scene' ), scene );
+	container.addTab( 'project', strings.getKey( 'sidebar/project' ), project );
+	container.addTab( 'settings', strings.getKey( 'sidebar/settings' ), settings );
+	container.select( 'scene' );
 
 	return container;
 

@@ -2,25 +2,37 @@
  * @author mrdoob / http://mrdoob.com/
  */
 
-THREE.TextureLoader = function ( manager ) {
+import { RGBAFormat, RGBFormat } from '../constants.js';
+import { ImageLoader } from './ImageLoader.js';
+import { Texture } from '../textures/Texture.js';
+import { Loader } from './Loader.js';
 
-	this.manager = ( manager !== undefined ) ? manager : THREE.DefaultLoadingManager;
+function TextureLoader( manager ) {
 
-};
+	Loader.call( this, manager );
 
-THREE.TextureLoader.prototype = {
+}
 
-	constructor: THREE.TextureLoader,
+TextureLoader.prototype = Object.assign( Object.create( Loader.prototype ), {
+
+	constructor: TextureLoader,
 
 	load: function ( url, onLoad, onProgress, onError ) {
 
-		var scope = this;
+		var texture = new Texture();
 
-		var loader = new THREE.ImageLoader( scope.manager );
+		var loader = new ImageLoader( this.manager );
 		loader.setCrossOrigin( this.crossOrigin );
+		loader.setPath( this.path );
+
 		loader.load( url, function ( image ) {
 
-			var texture = new THREE.Texture( image );
+			texture.image = image;
+
+			// JPEGs can't have an alpha channel, so memory can be saved by storing them as RGB.
+			var isJPEG = url.search( /\.jpe?g($|\?)/i ) > 0 || url.search( /^data\:image\/jpeg/ ) === 0;
+
+			texture.format = isJPEG ? RGBFormat : RGBAFormat;
 			texture.needsUpdate = true;
 
 			if ( onLoad !== undefined ) {
@@ -31,12 +43,11 @@ THREE.TextureLoader.prototype = {
 
 		}, onProgress, onError );
 
-	},
-
-	setCrossOrigin: function ( value ) {
-
-		this.crossOrigin = value;
+		return texture;
 
 	}
 
-};
+} );
+
+
+export { TextureLoader };

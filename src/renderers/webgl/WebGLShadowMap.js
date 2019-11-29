@@ -3,59 +3,69 @@
  * @author mrdoob / http://mrdoob.com/
  */
 
-THREE.WebGLShadowMap = function ( _renderer, _lights, _objects ) {
+import { FrontSide, BackSide, DoubleSide, RGBAFormat, NearestFilter, LinearFilter, PCFShadowMap, VSMShadowMap, RGBADepthPacking, NoBlending } from '../../constants.js';
+import { WebGLRenderTarget } from '../WebGLRenderTarget.js';
+import { MeshDepthMaterial } from '../../materials/MeshDepthMaterial.js';
+import { MeshDistanceMaterial } from '../../materials/MeshDistanceMaterial.js';
+import { ShaderMaterial } from '../../materials/ShaderMaterial.js';
+import { BufferAttribute } from '../../core/BufferAttribute.js';
+import { BufferGeometry } from '../../core/BufferGeometry.js';
+import { Mesh } from '../../objects/Mesh.js';
+import { Vector4 } from '../../math/Vector4.js';
+import { Vector2 } from '../../math/Vector2.js';
+import { Frustum } from '../../math/Frustum.js';
 
-	var _gl = _renderer.context,
-	_state = _renderer.state,
-	_frustum = new THREE.Frustum(),
-	_projScreenMatrix = new THREE.Matrix4(),
+import vsm_frag from '../shaders/ShaderLib/vsm_frag.glsl.js';
+import vsm_vert from '../shaders/ShaderLib/vsm_vert.glsl.js';
 
-	_min = new THREE.Vector3(),
-	_max = new THREE.Vector3(),
+function WebGLShadowMap( _renderer, _objects, maxTextureSize ) {
 
-	_matrixPosition = new THREE.Vector3(),
+	var _frustum = new Frustum(),
 
-	_renderList = [];
+		_shadowMapSize = new Vector2(),
+		_viewportSize = new Vector2(),
 
-	// init
+		_viewport = new Vector4(),
 
-	var depthShader = THREE.ShaderLib[ "depthRGBA" ];
-	var depthUniforms = THREE.UniformsUtils.clone( depthShader.uniforms );
+		_depthMaterials = [],
+		_distanceMaterials = [],
 
-	var _depthMaterial = new THREE.ShaderMaterial( {
-		uniforms: depthUniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader
-	 } );
+		_materialCache = {};
 
-	var _depthMaterialMorph = new THREE.ShaderMaterial( {
-		uniforms: depthUniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader,
-		morphTargets: true
+	var shadowSide = { 0: BackSide, 1: FrontSide, 2: DoubleSide };
+
+	var shadowMaterialVertical = new ShaderMaterial( {
+
+		defines: {
+			SAMPLE_RATE: 2.0 / 8.0,
+			HALF_SAMPLE_RATE: 1.0 / 8.0
+		},
+
+		uniforms: {
+			shadow_pass: { value: null },
+			resolution: { value: new Vector2() },
+			radius: { value: 4.0 }
+		},
+
+		vertexShader: vsm_vert,
+
+		fragmentShader: vsm_frag
+
 	} );
 
-	var _depthMaterialSkin = new THREE.ShaderMaterial( {
-		uniforms: depthUniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader,
-		skinning: true
-	} );
+	var shadowMaterialHorizonal = shadowMaterialVertical.clone();
+	shadowMaterialHorizonal.defines.HORIZONAL_PASS = 1;
 
-	var _depthMaterialMorphSkin = new THREE.ShaderMaterial( {
-		uniforms: depthUniforms,
-		vertexShader: depthShader.vertexShader,
-		fragmentShader: depthShader.fragmentShader,
-		morphTargets: true,
-		skinning: true
-	} );
+	var fullScreenTri = new BufferGeometry();
+	fullScreenTri.setAttribute(
+		"position",
+		new BufferAttribute(
+			new Float32Array( [ - 1, - 1, 0.5, 3, - 1, 0.5, - 1, 3, 0.5 ] ),
+			3
+		)
+	);
 
-	_depthMaterial._shadowPass = true;
-	_depthMaterialMorph._shadowPass = true;
-	_depthMaterialSkin._shadowPass = true;
-	_depthMaterialMorphSkin._shadowPass = true;
-
-	//
+	var fullScreenMesh = new Mesh( fullScreenTri, shadowMaterialVertical );
 
 	var scope = this;
 
@@ -64,243 +74,371 @@ THREE.WebGLShadowMap = function ( _renderer, _lights, _objects ) {
 	this.autoUpdate = true;
 	this.needsUpdate = false;
 
-	this.type = THREE.PCFShadowMap;
-	this.cullFace = THREE.CullFaceFront;
+	this.type = PCFShadowMap;
 
-	this.render = function ( scene, camera ) {
+	this.render = function ( lights, scene, camera ) {
 
 		if ( scope.enabled === false ) return;
 		if ( scope.autoUpdate === false && scope.needsUpdate === false ) return;
 
-		// set GL state for depth map
+		if ( lights.length === 0 ) return;
 
-		_gl.clearColor( 1, 1, 1, 1 );
-		_state.disable( _gl.BLEND );
+		var currentRenderTarget = _renderer.getRenderTarget();
+		var activeCubeFace = _renderer.getActiveCubeFace();
+		var activeMipmapLevel = _renderer.getActiveMipmapLevel();
 
-		_state.enable( _gl.CULL_FACE );
-		_gl.frontFace( _gl.CCW );
+		var _state = _renderer.state;
 
-		if ( scope.cullFace === THREE.CullFaceFront ) {
-
-			_gl.cullFace( _gl.FRONT );
-
-		} else {
-
-			_gl.cullFace( _gl.BACK );
-
-		}
-
-		_state.setDepthTest( true );
+		// Set GL state for depth map.
+		_state.setBlending( NoBlending );
+		_state.buffers.color.setClear( 1, 1, 1, 1 );
+		_state.buffers.depth.setTest( true );
+		_state.setScissorTest( false );
 
 		// render depth map
 
-		for ( var i = 0, il = _lights.length; i < il; i ++ ) {
+		for ( var i = 0, il = lights.length; i < il; i ++ ) {
 
-			var light = _lights[ i ];
+			var light = lights[ i ];
+			var shadow = light.shadow;
 
-			if ( ! light.castShadow ) continue;
+			if ( shadow === undefined ) {
 
-			if ( ! light.shadowMap ) {
-
-				var shadowFilter = THREE.LinearFilter;
-
-				if ( scope.type === THREE.PCFSoftShadowMap ) {
-
-					shadowFilter = THREE.NearestFilter;
-
-				}
-
-				var pars = { minFilter: shadowFilter, magFilter: shadowFilter, format: THREE.RGBAFormat };
-
-				light.shadowMap = new THREE.WebGLRenderTarget( light.shadowMapWidth, light.shadowMapHeight, pars );
-				light.shadowMapSize = new THREE.Vector2( light.shadowMapWidth, light.shadowMapHeight );
-
-				light.shadowMatrix = new THREE.Matrix4();
+				console.warn( 'THREE.WebGLShadowMap:', light, 'has no shadow.' );
+				continue;
 
 			}
 
-			if ( ! light.shadowCamera ) {
+			_shadowMapSize.copy( shadow.mapSize );
 
-				if ( light instanceof THREE.SpotLight ) {
+			var shadowFrameExtents = shadow.getFrameExtents();
 
-					light.shadowCamera = new THREE.PerspectiveCamera( light.shadowCameraFov, light.shadowMapWidth / light.shadowMapHeight, light.shadowCameraNear, light.shadowCameraFar );
+			_shadowMapSize.multiply( shadowFrameExtents );
 
-				} else if ( light instanceof THREE.DirectionalLight ) {
+			_viewportSize.copy( shadow.mapSize );
 
-					light.shadowCamera = new THREE.OrthographicCamera( light.shadowCameraLeft, light.shadowCameraRight, light.shadowCameraTop, light.shadowCameraBottom, light.shadowCameraNear, light.shadowCameraFar );
+			if ( _shadowMapSize.x > maxTextureSize || _shadowMapSize.y > maxTextureSize ) {
+
+				console.warn( 'THREE.WebGLShadowMap:', light, 'has shadow exceeding max texture size, reducing' );
+
+				if ( _shadowMapSize.x > maxTextureSize ) {
+
+					_viewportSize.x = Math.floor( maxTextureSize / shadowFrameExtents.x );
+					_shadowMapSize.x = _viewportSize.x * shadowFrameExtents.x;
+					shadow.mapSize.x = _viewportSize.x;
+
+				}
+
+				if ( _shadowMapSize.y > maxTextureSize ) {
+
+					_viewportSize.y = Math.floor( maxTextureSize / shadowFrameExtents.y );
+					_shadowMapSize.y = _viewportSize.y * shadowFrameExtents.y;
+					shadow.mapSize.y = _viewportSize.y;
+
+				}
+
+			}
+
+			if ( shadow.map === null && ! shadow.isPointLightShadow && this.type === VSMShadowMap ) {
+
+				var pars = { minFilter: LinearFilter, magFilter: LinearFilter, format: RGBAFormat };
+
+				shadow.map = new WebGLRenderTarget( _shadowMapSize.x, _shadowMapSize.y, pars );
+				shadow.map.texture.name = light.name + ".shadowMap";
+
+				shadow.mapPass = new WebGLRenderTarget( _shadowMapSize.x, _shadowMapSize.y, pars );
+
+				shadow.camera.updateProjectionMatrix();
+
+			}
+
+			if ( shadow.map === null ) {
+
+				var pars = { minFilter: NearestFilter, magFilter: NearestFilter, format: RGBAFormat };
+
+				shadow.map = new WebGLRenderTarget( _shadowMapSize.x, _shadowMapSize.y, pars );
+				shadow.map.texture.name = light.name + ".shadowMap";
+
+				shadow.camera.updateProjectionMatrix();
+
+			}
+
+			_renderer.setRenderTarget( shadow.map );
+			_renderer.clear();
+
+			var viewportCount = shadow.getViewportCount();
+
+			for ( var vp = 0; vp < viewportCount; vp ++ ) {
+
+				var viewport = shadow.getViewport( vp );
+
+				_viewport.set(
+					_viewportSize.x * viewport.x,
+					_viewportSize.y * viewport.y,
+					_viewportSize.x * viewport.z,
+					_viewportSize.y * viewport.w
+				);
+
+				_state.viewport( _viewport );
+
+				shadow.updateMatrices( light, vp );
+
+				_frustum = shadow.getFrustum();
+
+				renderObject( scene, camera, shadow.camera, light, this.type );
+
+			}
+
+			// do blur pass for VSM
+
+			if ( ! shadow.isPointLightShadow && this.type === VSMShadowMap ) {
+
+				VSMPass( shadow, camera );
+
+			}
+
+		}
+
+		scope.needsUpdate = false;
+
+		_renderer.setRenderTarget( currentRenderTarget, activeCubeFace, activeMipmapLevel );
+
+	};
+
+	function VSMPass( shadow, camera ) {
+
+		var geometry = _objects.update( fullScreenMesh );
+
+		// vertical pass
+
+		shadowMaterialVertical.uniforms.shadow_pass.value = shadow.map.texture;
+		shadowMaterialVertical.uniforms.resolution.value = shadow.mapSize;
+		shadowMaterialVertical.uniforms.radius.value = shadow.radius;
+		_renderer.setRenderTarget( shadow.mapPass );
+		_renderer.clear();
+		_renderer.renderBufferDirect( camera, null, geometry, shadowMaterialVertical, fullScreenMesh, null );
+
+		// horizonal pass
+
+		shadowMaterialHorizonal.uniforms.shadow_pass.value = shadow.mapPass.texture;
+		shadowMaterialHorizonal.uniforms.resolution.value = shadow.mapSize;
+		shadowMaterialHorizonal.uniforms.radius.value = shadow.radius;
+		_renderer.setRenderTarget( shadow.map );
+		_renderer.clear();
+		_renderer.renderBufferDirect( camera, null, geometry, shadowMaterialHorizonal, fullScreenMesh, null );
+
+	}
+
+	function getDepthMaterialVariant( useMorphing, useSkinning, useInstancing ) {
+
+		var index = useMorphing << 0 | useSkinning << 1 | useInstancing << 2;
+
+		var material = _depthMaterials[ index ];
+
+		if ( material === undefined ) {
+
+			material = new MeshDepthMaterial( {
+
+				depthPacking: RGBADepthPacking,
+
+				morphTargets: useMorphing,
+				skinning: useSkinning
+
+			} );
+
+			_depthMaterials[ index ] = material;
+
+		}
+
+		return material;
+
+	}
+
+	function getDistanceMaterialVariant( useMorphing, useSkinning, useInstancing ) {
+
+		var index = useMorphing << 0 | useSkinning << 1 | useInstancing << 2;
+
+		var material = _distanceMaterials[ index ];
+
+		if ( material === undefined ) {
+
+			material = new MeshDistanceMaterial( {
+
+				morphTargets: useMorphing,
+				skinning: useSkinning
+
+			} );
+
+			_distanceMaterials[ index ] = material;
+
+		}
+
+		return material;
+
+	}
+
+	function getDepthMaterial( object, material, light, shadowCameraNear, shadowCameraFar, type ) {
+
+		var geometry = object.geometry;
+
+		var result = null;
+
+		var getMaterialVariant = getDepthMaterialVariant;
+		var customMaterial = object.customDepthMaterial;
+
+		if ( light.isPointLight === true ) {
+
+			getMaterialVariant = getDistanceMaterialVariant;
+			customMaterial = object.customDistanceMaterial;
+
+		}
+
+		if ( customMaterial === undefined ) {
+
+			var useMorphing = false;
+
+			if ( material.morphTargets === true ) {
+
+				if ( geometry.isBufferGeometry === true ) {
+
+					useMorphing = geometry.morphAttributes && geometry.morphAttributes.position && geometry.morphAttributes.position.length > 0;
+
+				} else if ( geometry.isGeometry === true ) {
+
+					useMorphing = geometry.morphTargets && geometry.morphTargets.length > 0;
+
+				}
+
+			}
+
+			var useSkinning = false;
+
+			if ( object.isSkinnedMesh === true ) {
+
+				if ( material.skinning === true ) {
+
+					useSkinning = true;
 
 				} else {
 
-					console.error( "THREE.ShadowMapPlugin: Unsupported light type for shadow", light );
-					continue;
+					console.warn( 'THREE.WebGLShadowMap: THREE.SkinnedMesh with material.skinning set to false:', object );
 
 				}
 
-				scene.add( light.shadowCamera );
+			}
 
-				if ( scene.autoUpdate === true ) scene.updateMatrixWorld();
+			var useInstancing = object.isInstancedMesh === true;
+
+			result = getMaterialVariant( useMorphing, useSkinning, useInstancing );
+
+		} else {
+
+			result = customMaterial;
+
+		}
+
+		if ( _renderer.localClippingEnabled &&
+				material.clipShadows === true &&
+				material.clippingPlanes.length !== 0 ) {
+
+			// in this case we need a unique material instance reflecting the
+			// appropriate state
+
+			var keyA = result.uuid, keyB = material.uuid;
+
+			var materialsForVariant = _materialCache[ keyA ];
+
+			if ( materialsForVariant === undefined ) {
+
+				materialsForVariant = {};
+				_materialCache[ keyA ] = materialsForVariant;
 
 			}
 
-			if ( light.shadowCameraVisible && ! light.cameraHelper ) {
+			var cachedMaterial = materialsForVariant[ keyB ];
 
-				light.cameraHelper = new THREE.CameraHelper( light.shadowCamera );
-				scene.add( light.cameraHelper );
+			if ( cachedMaterial === undefined ) {
+
+				cachedMaterial = result.clone();
+				materialsForVariant[ keyB ] = cachedMaterial;
 
 			}
 
-			var shadowMap = light.shadowMap;
-			var shadowMatrix = light.shadowMatrix;
-			var shadowCamera = light.shadowCamera;
+			result = cachedMaterial;
 
-			//
+		}
 
-			shadowCamera.position.setFromMatrixPosition( light.matrixWorld );
-			_matrixPosition.setFromMatrixPosition( light.target.matrixWorld );
-			shadowCamera.lookAt( _matrixPosition );
-			shadowCamera.updateMatrixWorld();
+		result.visible = material.visible;
+		result.wireframe = material.wireframe;
 
-			shadowCamera.matrixWorldInverse.getInverse( shadowCamera.matrixWorld );
+		if ( type === VSMShadowMap ) {
 
-			//
+			result.side = ( material.shadowSide !== null ) ? material.shadowSide : material.side;
 
-			if ( light.cameraHelper ) light.cameraHelper.visible = light.shadowCameraVisible;
-			if ( light.shadowCameraVisible ) light.cameraHelper.update();
+		} else {
 
-			// compute shadow matrix
+			result.side = ( material.shadowSide !== null ) ? material.shadowSide : shadowSide[ material.side ];
 
-			shadowMatrix.set(
-				0.5, 0.0, 0.0, 0.5,
-				0.0, 0.5, 0.0, 0.5,
-				0.0, 0.0, 0.5, 0.5,
-				0.0, 0.0, 0.0, 1.0
-			);
+		}
 
-			shadowMatrix.multiply( shadowCamera.projectionMatrix );
-			shadowMatrix.multiply( shadowCamera.matrixWorldInverse );
+		result.clipShadows = material.clipShadows;
+		result.clippingPlanes = material.clippingPlanes;
+		result.clipIntersection = material.clipIntersection;
 
-			// update camera matrices and frustum
+		result.wireframeLinewidth = material.wireframeLinewidth;
+		result.linewidth = material.linewidth;
 
-			_projScreenMatrix.multiplyMatrices( shadowCamera.projectionMatrix, shadowCamera.matrixWorldInverse );
-			_frustum.setFromMatrix( _projScreenMatrix );
+		if ( light.isPointLight === true && result.isMeshDistanceMaterial === true ) {
 
-			// render shadow map
+			result.referencePosition.setFromMatrixPosition( light.matrixWorld );
+			result.nearDistance = shadowCameraNear;
+			result.farDistance = shadowCameraFar;
 
-			_renderer.setRenderTarget( shadowMap );
-			_renderer.clear();
+		}
 
-			// set object matrices & frustum culling
+		return result;
 
-			_renderList.length = 0;
+	}
 
-			projectObject( scene, shadowCamera );
+	function renderObject( object, camera, shadowCamera, light, type ) {
 
+		if ( object.visible === false ) return;
 
-			// render regular objects
+		var visible = object.layers.test( camera.layers );
 
-			for ( var j = 0, jl = _renderList.length; j < jl; j ++ ) {
+		if ( visible && ( object.isMesh || object.isLine || object.isPoints ) ) {
 
-				var object = _renderList[ j ];
+			if ( ( object.castShadow || ( object.receiveShadow && type === VSMShadowMap ) ) && ( ! object.frustumCulled || _frustum.intersectsObject( object ) ) ) {
+
+				object.modelViewMatrix.multiplyMatrices( shadowCamera.matrixWorldInverse, object.matrixWorld );
+
 				var geometry = _objects.update( object );
 				var material = object.material;
 
-				if ( material instanceof THREE.MeshFaceMaterial ) {
+				if ( Array.isArray( material ) ) {
 
 					var groups = geometry.groups;
-					var materials = material.materials;
 
 					for ( var k = 0, kl = groups.length; k < kl; k ++ ) {
 
 						var group = groups[ k ];
-						var groupMaterial = materials[ group.materialIndex ];
+						var groupMaterial = material[ group.materialIndex ];
 
-						if ( groupMaterial.visible === true ) {
+						if ( groupMaterial && groupMaterial.visible ) {
 
-							_renderer.renderBufferDirect( shadowCamera, _lights, null, geometry, getDepthMaterial( object, groupMaterial ), object, group );
+							var depthMaterial = getDepthMaterial( object, groupMaterial, light, shadowCamera.near, shadowCamera.far, type );
+
+							_renderer.renderBufferDirect( shadowCamera, null, geometry, depthMaterial, object, group );
 
 						}
 
 					}
 
-				} else {
+				} else if ( material.visible ) {
 
-					_renderer.renderBufferDirect( shadowCamera, _lights, null, geometry, getDepthMaterial( object, material ), object );
+					var depthMaterial = getDepthMaterial( object, material, light, shadowCamera.near, shadowCamera.far, type );
 
-				}
-
-			}
-
-		}
-
-		// restore GL state
-
-		var clearColor = _renderer.getClearColor(),
-		clearAlpha = _renderer.getClearAlpha();
-
-		_renderer.setClearColor( clearColor, clearAlpha );
-		_state.enable( _gl.BLEND );
-
-		if ( scope.cullFace === THREE.CullFaceFront ) {
-
-			_gl.cullFace( _gl.BACK );
-
-		}
-
-		_renderer.resetGLState();
-
-		scope.needsUpdate = false;
-
-	};
-
-	function getDepthMaterial( object, material ) {
-
-		var geometry = object.geometry;
-
-		var useMorphing = geometry.morphTargets !== undefined && geometry.morphTargets.length > 0 && material.morphTargets;
-		var useSkinning = object instanceof THREE.SkinnedMesh && material.skinning;
-
-		var depthMaterial;
-
-		if ( object.customDepthMaterial ) {
-
-			depthMaterial = object.customDepthMaterial;
-
-		} else if ( useSkinning ) {
-
-			depthMaterial = useMorphing ? _depthMaterialMorphSkin : _depthMaterialSkin;
-
-		} else if ( useMorphing ) {
-
-			depthMaterial = _depthMaterialMorph;
-
-		} else {
-
-			depthMaterial = _depthMaterial;
-
-		}
-
-		depthMaterial.visible = material.visible;
-		depthMaterial.wireframe = material.wireframe;
-		depthMaterial.wireframeLinewidth = material.wireframeLinewidth;
-
-		return depthMaterial;
-
-	}
-
-	function projectObject( object, camera ) {
-
-		if ( object.visible === false ) return;
-
-		if ( object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points ) {
-
-			if ( object.castShadow && ( object.frustumCulled === false || _frustum.intersectsObject( object ) === true ) ) {
-
-				var material = object.material;
-
-				if ( material.visible === true ) {
-
-					object.modelViewMatrix.multiplyMatrices( camera.matrixWorldInverse, object.matrixWorld );
-					_renderList.push( object );
+					_renderer.renderBufferDirect( shadowCamera, null, geometry, depthMaterial, object, null );
 
 				}
 
@@ -312,10 +450,13 @@ THREE.WebGLShadowMap = function ( _renderer, _lights, _objects ) {
 
 		for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-			projectObject( children[ i ], camera );
+			renderObject( children[ i ], camera, shadowCamera, light, type );
 
 		}
 
 	}
 
-};
+}
+
+
+export { WebGLShadowMap };

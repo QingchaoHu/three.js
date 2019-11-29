@@ -1,8 +1,10 @@
 /**
-* @author mrdoob / http://mrdoob.com/
-*/
+ * @author mrdoob / http://mrdoob.com/
+ */
 
-THREE.WebGLIndexedBufferRenderer = function ( _gl, extensions, _infoRender ) {
+function WebGLIndexedBufferRenderer( gl, extensions, info, capabilities ) {
+
+	var isWebGL2 = capabilities.isWebGL2;
 
 	var mode;
 
@@ -12,54 +14,62 @@ THREE.WebGLIndexedBufferRenderer = function ( _gl, extensions, _infoRender ) {
 
 	}
 
-	var type, size;
+	var type, bytesPerElement;
 
-	function setIndex( index ) {
+	function setIndex( value ) {
 
-		if ( index.array instanceof Uint32Array && extensions.get( 'OES_element_index_uint' ) ) {
-
-			type = _gl.UNSIGNED_INT;
-			size = 4;
-
-		} else {
-
-			type = _gl.UNSIGNED_SHORT;
-			size = 2;
-
-		}
+		type = value.type;
+		bytesPerElement = value.bytesPerElement;
 
 	}
 
 	function render( start, count ) {
 
-		_gl.drawElements( mode, count, type, start * size );
+		gl.drawElements( mode, count, type, start * bytesPerElement );
 
-		_infoRender.calls ++;
-		_infoRender.vertices += count;
-		if ( mode === _gl.TRIANGLES ) _infoRender.faces += count / 3;
+		info.update( count, mode );
 
 	}
 
-	function renderInstances( geometry ) {
+	function renderInstances( geometry, start, count, primcount ) {
 
-		var extension = extensions.get( 'ANGLE_instanced_arrays' );
+		if ( primcount === 0 ) return;
 
-		if ( extension === null ) {
+		var extension, methodName;
 
-			console.error( 'THREE.WebGLBufferRenderer: using THREE.InstancedBufferGeometry but hardware does not support extension ANGLE_instanced_arrays.' );
-			return;
+		if ( isWebGL2 ) {
+
+			extension = gl;
+			methodName = 'drawElementsInstanced';
+
+		} else {
+
+			extension = extensions.get( 'ANGLE_instanced_arrays' );
+			methodName = 'drawElementsInstancedANGLE';
+
+			if ( extension === null ) {
+
+				console.error( 'THREE.WebGLIndexedBufferRenderer: using THREE.InstancedBufferGeometry but hardware does not support extension ANGLE_instanced_arrays.' );
+				return;
+
+			}
 
 		}
 
-		var index = geometry.index;
+		extension[ methodName ]( mode, count, type, start * bytesPerElement, primcount );
 
-		extension.drawElementsInstancedANGLE( mode, index.array.length, type, 0, geometry.maxInstancedCount );
+		info.update( count, mode, primcount );
 
 	}
+
+	//
 
 	this.setMode = setMode;
 	this.setIndex = setIndex;
 	this.render = render;
 	this.renderInstances = renderInstances;
 
-};
+}
+
+
+export { WebGLIndexedBufferRenderer };
